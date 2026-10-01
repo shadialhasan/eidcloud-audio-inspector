@@ -1,0 +1,12 @@
+{
+  "description": "Audio forensics and compliance analyzer measuring LUFS, True Peak, SNR, and silence via FFmpeg & pure PHP",
+  "topics": [
+    "eidcloud",
+    "audio-engineering",
+    "lufs-normalizer",
+    "ebu-r128",
+    "audio-forensics",
+    "ffmpeg-wrapper",
+    "php8"
+  ]
+}

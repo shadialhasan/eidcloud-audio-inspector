@@ -1,0 +1,31 @@
+# Composer dependencies
+/vendor/
+composer.phar
+
+# Environment & local settings
+.env
+.env.local
+.env.*.local
+
+# Cache and temporary artifacts
+*.cache
+.phpunit.result.cache
+.php-cs-fixer.cache
+*.log
+/tmp/
+
+# Audio outputs and test artifacts
+*.wav
+*.mp3
+*.flac
+*.aac
+*.ogg
+!tests/fixtures/*.gitkeep
+
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db

@@ -1,0 +1,228 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+// Register autoloader (Composer vendor or native zero-dependency PSR-4 fallback)
+if (file_exists(__DIR__ . '/../vendor/autoload.php')) {
+    require_once __DIR__ . '/../vendor/autoload.php';
+} else {
+    spl_autoload_register(function (string $class): void {
+        $prefix = 'EidCloud\\AudioInspector\\';
+        if (str_starts_with($class, $prefix)) {
+            $rel = substr($class, strlen($prefix));
+            $file = __DIR__ . '/../src/' . str_replace('\\', '/', $rel) . '.php';
+            if (file_exists($file)) {
+                require_once $file;
+            }
+        }
+    });
+}
+
+use EidCloud\AudioInspector\Inspector;
+use EidCloud\AudioInspector\Report\ConsoleReport;
+use EidCloud\AudioInspector\Report\JsonReport;
+use EidCloud\AudioInspector\Standards\StandardRegistry;
+use EidCloud\AudioInspector\Synthesizer\WavSynthesizer;
+
+// Parse CLI arguments
+$args = array_slice($argv, 1);
+
+if (empty($args) || in_array('-h', $args, true) || in_array('--help', $args, true)) {
+    printHelp();
+    exit(0);
+}
+
+if (in_array('-v', $args, true) || in_array('--version', $args, true)) {
+    echo "eidcloud-audio v1.0.0 (PHP " . PHP_VERSION . ")\n";
+    exit(0);
+}
+
+$command = $args[0];
+
+switch ($command) {
+    case 'standards':
+        printStandards();
+        exit(0);
+
+    case 'demo':
+        runDemo($args);
+        exit(0);
+
+    case 'inspect':
+        $exitCode = runInspect(array_slice($args, 1));
+        exit($exitCode);
+
+    default:
+        // If first argument is an existing audio file or ends with audio extension, treat as implicit inspect
+        if (file_exists($command) || preg_match('/\.(wav|mp3|flac|aac|ogg|m4a)$/i', $command)) {
+            $exitCode = runInspect($args);
+            exit($exitCode);
+        }
+
+        fwrite(STDERR, "Error: Unknown command '{$command}'.\nUse --help for usage information.\n");
+        exit(2);
+}
+
+/**
+ * Handle audio inspection CLI command.
+ *
+ * @param array<int, string> $params
+ */
+function runInspect(array $params): int
+{
+    if (empty($params)) {
+        fwrite(STDERR, "Error: Missing target audio file path.\nExample: php bin/eidcloud-audio inspect master.wav\n");
+        return 2;
+    }
+
+    $filePath = null;
+    $standardName = null;
+    $isJson = false;
+    $noAnsi = false;
+    $forcePurePhp = false;
+    $silenceThreshold = -60.0;
+
+    foreach ($params as $param) {
+        if ($param === '--json') {
+            $isJson = true;
+        } elseif ($param === '--no-ansi') {
+            $noAnsi = true;
+        } elseif ($param === '--pure-php') {
+            $forcePurePhp = true;
+        } elseif (str_starts_with($param, '--standard=')) {
+            $standardName = substr($param, 11);
+        } elseif (str_starts_with($param, '--silence=')) {
+            $silenceThreshold = (float) substr($param, 10);
+        } elseif (!str_starts_with($param, '--') && $filePath === null) {
+            $filePath = $param;
+        }
+    }
+
+    if ($filePath === null) {
+        fwrite(STDERR, "Error: Target audio file path not specified.\n");
+        return 2;
+    }
+
+    if (!file_exists($filePath)) {
+        fwrite(STDERR, "Error: File not found: {$filePath}\n");
+        return 2;
+    }
+
+    try {
+        $inspector = new Inspector();
+        $metrics = $inspector->inspect($filePath, [
+            'force_pure_php' => $forcePurePhp,
+            'silence_threshold_db' => $silenceThreshold,
+        ]);
+
+        $compliance = null;
+        if ($standardName !== null && $standardName !== '') {
+            $compliance = $inspector->checkCompliance($metrics, $standardName);
+        }
+
+        if ($isJson) {
+            $report = new JsonReport();
+            echo $report->render($metrics, $compliance) . PHP_EOL;
+        } else {
+            $report = new ConsoleReport(!$noAnsi);
+            echo $report->render($metrics, $compliance) . PHP_EOL;
+        }
+
+        if ($compliance !== null && !$compliance->isCompliant) {
+            return 1; // Non-compliant exit code
+        }
+
+        return 0;
+    } catch (\Throwable $e) {
+        fwrite(STDERR, "Inspection Error: " . $e->getMessage() . PHP_EOL);
+        return 2;
+    }
+}
+
+/**
+ * Handle demo test tone generation and inspection.
+ *
+ * @param array<int, string> $params
+ */
+function runDemo(array $params): void
+{
+    $outputPath = 'demo_tone.wav';
+    foreach ($params as $p) {
+        if (str_starts_with($p, '--output=')) {
+            $outputPath = substr($p, 9);
+        }
+    }
+
+    echo "Generating dynamic broadcast test tone (4s stereo PCM 16-bit at {$outputPath})...\n";
+    WavSynthesizer::generateDynamicBroadcastTone($outputPath, 4.0, 44100, 2);
+
+    $inspector = new Inspector();
+    $metrics = $inspector->inspect($outputPath);
+    $compliance = $inspector->checkCompliance($metrics, 'ebu-r128');
+
+    $report = new ConsoleReport(true);
+    echo $report->render($metrics, $compliance);
+
+    // Clean up temporary demo file unless requested specifically
+    if ($outputPath === 'demo_tone.wav' && file_exists($outputPath)) {
+        @unlink($outputPath);
+    }
+}
+
+/**
+ * Print all registered broadcast and streaming standards.
+ */
+function printStandards(): void
+{
+    echo "\n  SUPPORTED BROADCAST & STREAMING STANDARDS:\n";
+    echo "  " . str_repeat('─', 70) . "\n";
+    foreach (StandardRegistry::all() as $id => $std) {
+        printf("  %-16s : %s\n", $id, $std->getName());
+        printf("                   Target: %.1f LUFS (±%.1f LU) | Max Peak: %.1f dBTP\n",
+            $std->getTargetLufs(),
+            $std->getLufsTolerance(),
+            $std->getMaxTruePeak()
+        );
+        printf("                   %s\n\n", $std->getDescription());
+    }
+}
+
+/**
+ * Display formatted CLI help guide.
+ */
+function printHelp(): void
+{
+    echo <<<HELP
+
+  🎙️  eidcloud-audio-inspector - Audio Forensics & Broadcast Compliance CLI
+  Version 1.0.0 | Lead Architect: MHD. Shadi AL-Hasan
+
+  USAGE:
+    php bin/eidcloud-audio <command> [file] [options]
+    php bin/eidcloud-audio inspect <audio-file> [options]
+
+  COMMANDS:
+    inspect <file>       Inspect audio file and measure acoustic forensics
+    standards            List all supported broadcast and streaming standards
+    demo                 Generate a reference tone and perform full inspection
+
+  OPTIONS:
+    --standard=<id>      Verify compliance against a standard:
+                         ebu-r128 | apple-podcasts | youtube | spotify
+    --json               Output complete forensic results in machine-readable JSON
+    --no-ansi            Disable ANSI terminal coloring
+    --pure-php           Force zero-dependency pure PHP WAV parser engine
+    --silence=<dB>       Silence RMS threshold in dBFS (default: -60.0)
+    -h, --help           Show this help manual
+    -v, --version        Display inspector version
+
+  EXAMPLES:
+    php bin/eidcloud-audio inspect podcast.wav
+    php bin/eidcloud-audio inspect episode.mp3 --standard=ebu-r128
+    php bin/eidcloud-audio inspect music.wav --standard=youtube --json
+    php bin/eidcloud-audio inspect broadcast.wav --standard=apple-podcasts
+    php bin/eidcloud-audio demo
+
+HELP;
+}

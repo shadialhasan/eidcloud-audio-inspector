@@ -1,0 +1,33 @@
+{
+  "name": "eidcloud/audio-inspector",
+  "description": "Audio forensics and compliance analyzer measuring LUFS, True Peak, SNR, and silence via FFmpeg & pure PHP",
+  "type": "library",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "MHD. Shadi AL-Hasan",
+      "email": "mhd.shadi.alhasan@gmail.com",
+      "role": "Lead Architect & Developer"
+    }
+  ],
+  "require": {
+    "php": ">=8.2.0"
+  },
+  "require-dev": {},
+  "autoload": {
+    "psr-4": {
+      "EidCloud\\AudioInspector\\": "src/"
+    }
+  },
+  "bin": [
+    "bin/eidcloud-audio"
+  ],
+  "scripts": {
+    "test": "php tests/run_tests.php"
+  },
+  "config": {
+    "sort-packages": true,
+    "optimize-autoloader": true
+  },
+  "minimum-stability": "stable"
+}
